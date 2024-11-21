@@ -176,12 +176,19 @@ w &= \frac{L_0}{L_0 + L_1}\\
 \end{equation*}
 Where at step $(A)$ we simply solve for $x_0$. And once we know $x_0$,
 we of course can simply get $y_0$ as $y_0 = x_0p$, which ensures the
-reserves to be in proportion. We can ensure this derivation is sound
-in multiple ways. For example, by proving $x_0 \leq x \leq X$ (left as an exercise).
-Intuition also tells us the final expression for calculating $x_0$ makes sense.
-Why would we care about $Y$, $y$ or $p$ to compute the allocation of tokens $x_0$,
-if $y_0$ is already its dual, as the position is balanced?
+reserves to be in proportion. We shall now prove that $x_0 \leq x \leq X$,
+as the fact will be helpful later:
 
+\begin{equation*}
+\begin{split}
+\frac{\sqrt k wx}{\sqrt k + w - 1}\leq x\iff\\
+\sqrt k w\leq \sqrt k+w-1\iff\\
+\sqrt k(w-1)+(1-w)\iff\\
+(w-1)(\sqrt k-1)\leq 0
+\end{split}
+\end{equation*}
+But $(w - 1) \geq 0$ y $(\sqrt k -1) \leq 0$ as $w\in[0, 1]$ and $k\in[1,
+\infty)$. This concludes the proof.
 
 \break
 \subsection{Computation security proof}
@@ -228,20 +235,40 @@ any errors:
 \end{enumerate}
 
 
-\section{Price function inverse computation}
-Its:
+\section{Price function inverse}
+The only missing piece is the generalized inverse $\rho^{-1}$ that will let
+us map every price to its closest tick in Osmosis. We will prove that such
+function is:
 \[
-t(p) = 10^{6-\lfloor\log p\rfloor} \left(
+\rho^{-1}(p) = 10^{6-\lfloor\log p\rfloor} \left(
 	p+10^{\lfloor\log p\rfloor}\left(
 		9\lfloor\log p\rfloor-1
 	\right)
 \right)
 \]
-But still work in progress; The derivation is not important, whats important
-is to prove its a generalized inverse of osmosis price function.
-\subsection{Computation security proof}
-Work in progress. I already got the proof in a obsidian note, just need
-to review and formalize it.
+Of course, it could be the case that there was 2 different prices with
+the same tick, under the inverse. Dualy, there could be 2 ticks that map
+to the same price. Thats why by generalized inverse we mean 2 things:
+\begin{enumerate}
+    \item Generalized inverse property: $\forall t\in T: \rho^{-1}(\rho(t)) =
+        t$, where $T\subset\mathbb Z$ is the tick space.
+    \item Closeness property: $\forall t_0, t_1\in T$ st $t_1 > t_0$, we have
+        that $\forall p\in [\rho(t_0), \rho(t_1)]$ its the case that
+        $\rho^{-1}(p)\in[t_0, t_1]$. That is, given any 2 ticks, if we map them
+        to the price space and pick any price in that range, that price tick will
+        also be in the tick range after pulling it back.
+\end{enumerate}
+But its easy to check that the weaker form of the closeness property when $t_1
+= t_0 + 1$ is equivalent to the general form. And by dualizing the weaker form,
+that is, taking ranges of the form $[t_1 - 1, t_1]$, we can trivially prove that
+the generalized inverse property holds. Thus, we only need to prove the weaker
+closeness property to prove that $\rho^{-1}$ is properly defined.
+
+%But still work in progress; The derivation is not important, whats important
+%is to prove its a generalized inverse of osmosis price function.
+%\subsection{Computation security proof}
+%Work in progress. I already got the proof in a obsidian note, just need
+%to review and formalize it.
 
 \break
 \bibliographystyle{plain}
