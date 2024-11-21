@@ -11,6 +11,8 @@
 \usepackage{titling}
 \usepackage{url}
 \usepackage{xurl}
+\usepackage{minted}
+\usepackage{enumitem}
 
 \onehalfspacing
 
@@ -177,17 +179,54 @@ we of course can simply get $y_0$ as $y_0 = x_0p$, which ensures the
 reserves to be in proportion. We can ensure this derivation is sound
 in multiple ways. For example, by proving $x_0 \leq x \leq X$ (left as an exercise).
 Intuition also tells us the final expression for calculating $x_0$ makes sense.
-Why would we care about $Y$, $y$ or $p$ to compute the allocation of tokens $X$
-needed if price factors already ensure liquidity stays constant for any position
-centered at the current price? Its also expected that, by symmetry, a dual expression
-for calculating $y_0$ as function of $k$, $w$ and $y$ exists, but that would 
-introduce extra computational overhead, as we can simply compute one reserve from
-the other using the current price $p$.
+Why would we care about $Y$, $y$ or $p$ to compute the allocation of tokens $x_0$,
+if $y_0$ is already its dual, as the position is balanced?
 
 
+\break
 \subsection{Computation security proof}
-Work in progress. I already got the proof in a obsidian note, just need
-to review and formalize it.
+We now prove that the way $x_0$ is computed in the \texttt{magma-vaults} codebase
+is secure. Thus considered the implementation:
+\begin{minted}[fontsize=\small]{rust}
+pub fn calc_x0(k: &PriceFactor, w: &Weight, x: Decimal) -> Decimal {
+    if w.is_zero() { return Decimal::zero() }
+    do_me! {
+        let sqrt_k = k.0.sqrt();
+
+        let numerator = w.mul_dec(&sqrt_k);
+
+        let numerator = Decimal256::from(numerator)
+            .checked_mul(x.into())?;                         // (1)
+
+        let denominator = sqrt_k
+            .checked_sub(Decimal::one())?                    // (2)
+            .checked_add(w.0)?;                              // (3)
+
+        let x0 = numerator.checked_div(denominator.into())?; // (4)
+        Decimal::try_from(x0)?                               // (5)
+    }.unwrap()
+}
+\end{minted}
+The \texttt{do\_me!} macro only creates a \texttt{anyhow::Error} closure
+and runs it, so we only need to ensure the commented lines wont produce
+any errors:
+\begin{enumerate}[label=(\arabic*).]
+    \item Wont overflow as $(2^{128} - 1)^2 < 2^{256} - 1$.
+    \item Wont underflow as $k\in[1, \infty)$, thus $\sqrt k - 1 = 0$ in the
+        worst case.
+    \item Wont overflow as $w\in[0, 1]$, and we just subtracted 1 from $\sqrt
+        k$ .
+    \item Could only produce a division by zero if $\sqrt k -  1 + w = 0$.
+        Assume $k= 1$, then $\sqrt k - 1 + w = 0 \iff w = 0$, in which case
+        $x_0$ computation is trivial (see first line of the implementation).
+        Note that also $k = 1 \land w = 0$ produces a vault with generally idle
+        capital and only limit positions (which the first version does not
+        support). On the other hand, the division wont overflow because $x_0
+        \leq x$, as stated earlier.
+    \item Finally, the downgrade to 128 bits wont fail because, again, $x_0
+        \leq x$, but $x$ fits in 128 bits by definition.
+\end{enumerate}
+
 
 \section{Price function inverse computation}
 Its:
