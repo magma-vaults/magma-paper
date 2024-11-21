@@ -1,0 +1,211 @@
+\documentclass[11pt]{article}
+
+\usepackage{geometry}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{times}
+\usepackage{natbib}
+\usepackage{setspace}
+\usepackage{titling}
+\usepackage{url}
+\usepackage{xurl}
+
+\onehalfspacing
+
+\begin{document}
+
+% Custom title with code font and reduced space between title and date
+\begin{center}
+\texttt{\Large magma-vaults}
+
+\vspace{0.5em} % Adjusts the space between the title and the date
+\texttt{\large \today}
+\end{center}
+
+\begin{abstract}
+    \texttt{magma-vaults} are a fork of CharmFi vaults for EVM
+    \cite{charmfi-doc} adapted to the Osmosis chain with minor enchancements.
+    \texttt{magma-vaults} allow you to automatically manage 3 liquidity
+    positions for Osmosis Supercharged pools \cite{osmosis-supercharged-doc}.
+    One full range one, one concentrated, and a third one using
+    out-of-proportion balances. Users can configure different vaults with
+    different parameters, make them permisionless or permisioned, and decide
+    the exact liquidity that will go into each position.
+\end{abstract}
+
+\section{Introduction}
+UniswapV3 introduces the concept of ticks to allow for concentrated liqudity
+positions over custom ranges. Thus, we distinguish 2 spaces we want to work in:
+A tick space, where all ticks live, and a price space, where all prices live. As
+prices are logarithmic, we construct a linear tick space by taking logarithms.
+Its in this way that UniswapV3 price function $\rho(t) = 1.0001^t$ is constructed
+(equation (6.1) \citep{uniswapv3}), with the nice property that given the current
+tick $t$ of a liquidity pool, any concentrated position equidistant to $t$ will
+be balanced. That its, for any $\varepsilon > 0$, positions in tick range
+$[t-\varepsilon, t + \varepsilon]$ with reserves $(x, y)$ will have $\rho(t) =
+y/x$.
+
+One of the emergent features in UniswapV3 is that you can use concentrated
+liquidity positions as limit orders, with the problem that, due to their
+logarithmic nature, as prices grow, tick precision decreases. To give
+an example, if the current price of bitcoin was 80000USDC, the difference
+between the 2 closest ticks is of almost 8USDC. For this reaon, Osmosis introduces
+geometric tick spacing with additive ranges \cite{osmosis-price-function}, that
+allows us to define an order book on top of the AMM with proper tick precision.
+Its easy to verify that its price function is:
+\[
+\rho(t) = 10^{\lfloor t/9e6\rfloor - 6} \left(
+	t+10^6\left(1 - 9e6\left\lfloor \frac t{9e6}\right\rfloor
+	\right)
+\right)
+\]
+
+Naturally, mapping the tick space and price space in this way breaks our nice
+equidistant property. For this reason, \texttt{magma-vaults} does operations over
+the price space instead of the tick space, and then takes the price function
+generalized inverse to decide the ticks for the balanced base position and the
+limit one. It is then trivial to prove that, given the current tick $t$ and the
+current price $p := \rho(t)$, any position in the price range $[p/k, pk]$ will
+be balanced (we keep $k > 1$ for simplicity). We refer to those factors $k$ as
+\texttt{PriceFactor}s in the code, and they will be, with the the
+\texttt{Weight} type, our fundamental building block to configure custom
+strategies.
+
+\section{Architecture overview}
+Magma vaults manage up to 3 concentrated liqudity positions. A full range
+position, a base balanced position, and a limit position. Both, the full range
+position and the base position will be balanced, but as prices move, the base
+position could become unbalanced. Thus we expose a \texttt{rebalancing}
+functionality, that will burn all positions and create them again centered
+around the new price. Moreover, its easy to see that the total vault reserves
+wont always be in proportion, so any out-of-proportion reserves will be used
+for the limit position. Actually, vault total reserves almost never will be in
+proportion, but its still theoretically possible a vault could get rebalanced
+to have no limit position. Thus, the core business logic of the vault contract,
+i.e, the rebalancing procedure, will:
+\begin{enumerate}
+    \item Burn all active liquidity positions to withdraw total reserves $(X, Y)$.
+    \item Calculate all the balanced reserves $(x, y)$ in the vault. Its trivial
+        to verify that:
+        $$
+        (x, y) = \begin{cases}
+            (X, Xp) &,\; Y/p > X\\
+            (Y/p, Y) &,\; \text{otherwise}
+        \end{cases}
+        $$
+    \item Calculate the reserves $(x_0, y_0)$ to put into the full range position.
+        For this, the vault admin (user) will decide a liquidity
+        \texttt{Weight} $w\in(0, 1)$. For simplicity, we dont allow for extreme
+        value of $w$, but the user still could make the difference between $w$
+        and extremes negligible. The reserves will be calculated in such way
+        that, if $L_0$ is the liquidity of the full range position, and $L_1$
+        is the liquidity of the base one, $L_0/(L_0 + L_1) = w$ will be
+        invariant. We will elaborate on this computation in following sections.
+    \item Calculate trivially the reserves $(x_1, y_1)$ to put into the base
+        range position as $(x_1, y_1) = (x - x_0, y - y_0)$. Then, calculate
+        the concentrated tick range as $[\rho^{-1}(p/k_1), \rho^{-1}(pk_1)]$, for
+        current price $p$ and \texttt{PriceFactor} $k_1$ decided by the user.
+        The inverse $\rho^{-1}$ will be discussed in following sections.
+    \item Calculate trivially the reserves $(x_2, y_2)$ to put into the limit
+        position as $(x_2, y_2) = (X - x, Y - y)$. Naturally, $x_2 = 0\lor y_2 = 0$
+        is invariant, and trivial from $(2)$. We then simply compute the tick range
+        for the limit position as:
+        $$
+        [t_a, t_b] = \begin{cases}
+            [\rho^{-1}(p/k_2), \rho^{-1}(p)] &,\; x_2 = 0\\
+            [\rho^{-1}(p), \rho^{-1}(pk_2)] &,\; y_2 = 0
+        \end{cases}
+        $$
+        Where $p$ is the current price, and $k_2$ a \texttt{PriceFactor} decided by the user.
+\end{enumerate}
+Thus, the only remaining question is when to rebalance. For this, any vault can use up to
+3 rebalancing strategies:
+\begin{itemize}
+    \item \texttt{admin}: Only the vault admin can rebalance the vault whenever they
+        feel like. Thus, its up to the admin to decide the rebalancing strategy off-chain.
+    \item \texttt{delegate}: Any delegate address, decided by the admin, can rebalance
+        the vault whenever they feel like. This allows for the system extensionality with,
+        for example, oracle integration to rebalance automatically.
+    \item \texttt{anyone}: Anyone can rebalance the vault as long as the price
+        has moved outside the range $(p/k, pk)$ (where $p$ is the last
+        snapshoted price during rebalance, and $k$ a \texttt{PriceFactor}
+        decided by the admin) and as long as enough time has passed (threshold also
+        decided by the admin). This allows for fully permisionless vaults if the
+        vault admin decides to burn its ownership.
+\end{itemize}
+
+\section{Full range reserves computation}
+Charmfi Alpha Vaults allocate liquidity to the full range position with
+the formula $L = w\sqrt{XY}$ \cite{charmfi-liquidity-computation}. But this
+introduces an imprecision: As the base range size is variable, its liquidity
+will also be. Thus, \texttt{magma-vaults}, to make easier to reason about fees,
+ensures the liquidity of the full range position remains constant through the
+invariant:
+\[
+w = \frac{L_0}{L_0 + L_1}
+\]
+Thus, for example, if we set $w = 0.5$ we will be sure that, during any period
+of time, both positions will earn the same amount of fees (assuming of course that
+the base position stays in range during that time).
+
+Clearly, $L_0 = x_0\sqrt p$. We then express $L_1$ in terms of UniswapV3
+trading curve (equation (2.1) of the paper \cite{uniswapv3}) by taking
+liqudity on the right, and $k$ as the base range \texttt{PriceFactor}:
+\[
+L_1 = x_1\frac{\sqrt{p}\sqrt{pk}}{\sqrt{pk}-\sqrt{p}}
+    = x_1\frac{\sqrt{pk}}{\sqrt k - 1}
+\]
+Substituting then into our $w$ invariant:
+\begin{equation*}
+\begin{split}
+w &= \frac{L_0}{L_0 + L_1}\\
+  &= \frac{x_0\sqrt p}{x_0\sqrt p + \frac{x_1\sqrt{pk}}{\sqrt k - 1}}\\
+  &= x_0\left({x_0 + \frac{x_1\sqrt{k}}{\sqrt k - 1}}\right)^{-1}\\
+  &= x_0\left(
+    \frac{x_0(\sqrt k - 1) + x_1\sqrt k}{\sqrt k - 1}
+  \right)^{-1}\\
+  &= \frac{x_0(\sqrt k -1)}{x_0(\sqrt k -1) + (x-x_0)\sqrt k}\\
+  &= \frac{x_0\sqrt k - x_0}{x_0\sqrt k -x_0 + x\sqrt k - x_0\sqrt k}\\
+  &= \frac{x_0\sqrt k - x_0}{x\sqrt k - x_0} =w
+  \stackrel{(A)}\implies x_0 = \frac{\sqrt k wx}{\sqrt k + w - 1}
+\end{split}
+\end{equation*}
+Where at step $(A)$ we simply solve for $x_0$. And once we know $x_0$,
+we of course can simply get $y_0$ as $y_0 = x_0p$, which ensures the
+reserves to be in proportion. We can ensure this derivation is sound
+in multiple ways. For example, by proving $x_0 \leq x \leq X$ (left as an exercise).
+Intuition also tells us the final expression for calculating $x_0$ makes sense.
+Why would we care about $Y$, $y$ or $p$ to compute the allocation of tokens $X$
+needed if price factors already ensure liquidity stays constant for any position
+centered at the current price? Its also expected that, by symmetry, a dual expression
+for calculating $y_0$ as function of $k$, $w$ and $y$ exists, but that would 
+introduce extra computational overhead, as we can simply compute one reserve from
+the other using the current price $p$.
+
+
+\subsection{Computation security proof}
+Work in progress. I already got the proof in a obsidian note, just need
+to review and formalize it.
+
+\section{Price function inverse computation}
+Its:
+\[
+t(p) = 10^{6-\lfloor\log p\rfloor} \left(
+	p+10^{\lfloor\log p\rfloor}\left(
+		9\lfloor\log p\rfloor-1
+	\right)
+\right)
+\]
+But still work in progress; The derivation is not important, whats important
+is to prove its a generalized inverse of osmosis price function.
+\subsection{Computation security proof}
+Work in progress. I already got the proof in a obsidian note, just need
+to review and formalize it.
+
+\break
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

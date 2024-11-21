@@ -1,0 +1,38 @@
+\begin{thebibliography}{1}
+
+\bibitem{charmfi-liquidity-computation}
+Charmfi liquidity computation.
+\newblock
+  \url{https://github.com/charmfinance/alpha-vaults-v2-contracts/blob/main/contracts/AlphaProVault.sol#L420},
+  2021.
+\newblock Accessed: 2024-11-20.
+
+\bibitem{uniswapv3}
+Hayden Adams et~al.
+\newblock Uniswap v3 core.
+\newblock \url{https://app.uniswap.org/whitepaper-v3.pdf}, March 2021.
+\newblock Accessed: 2024-11-20.
+
+\bibitem{charmfi-doc}
+{CharmFi}.
+\newblock {Alpha Vaults whitepaper}.
+\newblock
+  \url{https://learn.charm.fi/charm/products-overview/alpha-vaults/whitepaper},
+  2021.
+\newblock Accessed: 2024-11-20.
+
+\bibitem{osmosis-supercharged-doc}
+{Osmosis}.
+\newblock {Concentrated Liquidity module documentation}.
+\newblock
+  \url{https://docs.osmosis.zone/osmosis-core/modules/concentrated-liquidity}.
+\newblock Accessed: 2024-11-20.
+
+\bibitem{osmosis-price-function}
+{Osmosis}.
+\newblock {Geometric Tick Spacing with Additive Ranges documentation}.
+\newblock
+  \url{https://docs.osmosis.zone/osmosis-core/modules/concentrated-liquidity/#geometric-tick-spacing-with-additive-ranges}.
+\newblock Accessed: 2024-11-20.
+
+\end{thebibliography}
