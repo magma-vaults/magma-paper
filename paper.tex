@@ -59,8 +59,7 @@ allows us to define an order book on top of the AMM with proper tick precision.
 Its easy to verify that its price function is:
 \[
 \rho(t) = 10^{\lfloor t/9e6\rfloor - 6} \left(
-	t+10^6\left(1 - 9e6\left\lfloor \frac t{9e6}\right\rfloor
-	\right)
+    t - 10^6\left(9\lfloor\frac{t}{9e6}\rfloor - 1\right)
 \right)
 \]
 
@@ -246,9 +245,11 @@ function is:
 	\right)
 \right)
 \]
-Of course, it could be the case that there was 2 different prices with
-the same tick, under the inverse. Dualy, there could be 2 ticks that map
-to the same price. Thats why by generalized inverse we mean 2 things:
+Of course, it could be the case that there was 2 different prices with the same
+tick, as we require ticks to be integers (ie, we will take $\rho^{-1}(p) :=
+\lfloor \rho^{-1}(p)\rfloor$). Moreover, there could be 2 ticks that map to the
+same price, due to computational precision. Thats why by generalized inverse we
+mean 2 things:
 \begin{enumerate}
     \item Generalized inverse property: $\forall t\in T: \rho^{-1}(\rho(t)) =
         t$, where $T\subset\mathbb Z$ is the tick space.
@@ -259,16 +260,100 @@ to the same price. Thats why by generalized inverse we mean 2 things:
         also be in the tick range after pulling it back.
 \end{enumerate}
 But its easy to check that the weaker form of the closeness property when $t_1
-= t_0 + 1$ is equivalent to the general form. And by dualizing the weaker form,
-that is, taking ranges of the form $[t_1 - 1, t_1]$, we can trivially prove that
-the generalized inverse property holds. Thus, we only need to prove the weaker
-closeness property to prove that $\rho^{-1}$ is properly defined.
+= t_0 + 1$ is equivalent to the general form. The generalized inverse property
+is not enough for our usecase, as we just mentioned there will be prices that
+map to the same tick. Informally, by proving the weak generalized closeness
+property, we will know that any price will get mapped to its closest tick or
+its second closes tick (which, for our usecase, is good enough). The proof
+sketch goes as follows:
+\begin{enumerate}
+    \item Prove the generalized inverse property by simple brute force (as the
+        domain is finite and relativelly small).
+    \item Observe both $\rho^{-1}$ and $\rho$ are monotone non-decreasing.
+    \item Conclued trivially that the weak closeness property holds, by simply
+        taking inverses over $\rho(t_0) \leq p \leq \rho(t_0 + 1)$.
+\end{enumerate}
 
-%But still work in progress; The derivation is not important, whats important
-%is to prove its a generalized inverse of osmosis price function.
-%\subsection{Computation security proof}
-%Work in progress. I already got the proof in a obsidian note, just need
-%to review and formalize it.
+\subsection{Computation security proof}
+Once again, we will have to prove that $\rho^{-1}$ computation is secure.
+In the codebase:
+
+\begin{minted}[fontsize=\small]{rust}
+let compute_price_inverse = |p: &Decimal| -> Option<i32> {
+    let floor_log_p = PositiveDecimal::new(p)?.floorlog10(); // (1)
+    let x = floor_log_p.checked_mul(9)?.checked_sub(1)?;     // (2)
+
+    let x = maybe_neg_pow(floor_log_p)?                      // (3)
+        .checked_mul(SignedDecimal256::new(x.into())).ok()?  // (4)
+        .checked_add(p.clone().try_into().ok()?).ok()?;      // (5)
+
+    let x = maybe_neg_pow(6i32.checked_sub(floor_log_p)?)?   // (6)
+	    .checked_mul(x).ok()?;                           // (7)
+
+    let x: Int128 = x.to_int_floor().try_into().ok()?;       // (8)
+    x.i128().try_into().ok()                                 // (9)
+};
+\end{minted}
+Thus, we want to prove the closure will never return \texttt{None} at
+each step:
+\begin{enumerate}[label=(\arabic*).]
+    \item \texttt{floorlog10} computes $\lfloor\log p\rfloor$. The implementation is:
+\begin{minted}[fontsize=\small]{rust}
+pub fn floorlog10(self: &PositiveDecimal) -> i32 {
+    let x: u128 = self.0.atomics().into();
+    // Invariant: `u128::ilog10(u128::MAX)` fits in `i32`.
+    let x: i32 = x.ilog10().try_into().unwrap();
+    // Invariant: `ilog10(1) - 18 = 0 - 18` fits in `i32`.
+    x.checked_sub(18).unwrap()
+}
+\end{minted}
+And as we can see, its security is already proved in the comments.
+Note that we subtract $18$ to our result, as we computer the decimal
+logarithm of the atoms of a \texttt{Decimal} type (wrapped trivially
+in \texttt{PositiveDecimal}), thus we have to compensate for the $18$
+decimal points it uses. Its also trivial to verify that 
+\[
+\text{Im}(\texttt{floorlog10}) =[-18, 20]\subset\mathbb Z
+\]
+is invariant.
+    \item Taking the upper and lower bound of the image of \texttt{floorlg10},
+        we get the valid \texttt{i32}:
+        \[
+            (9\lfloor\log p\rfloor - 1) \in[-162, 179]
+        \]
+    \item \texttt{maybe\_neg\_pow} sipmply takes \texttt{SignedDecimal256::pow(10, exp)}
+        but with \texttt{i32} domain instead of \texttt{u32} (the implmentation is trivial).
+        Clearly, the operation could fail for the whole domain, but in our case:
+        \begin{equation}
+        \begin{split}
+        &\texttt{maybe\_neg\_pow}(\text{Im}(\texttt{floorlog10}))=\\
+        &\texttt{maybe\_neg\_pow}([-18, 20])
+        = [10^{-18}, 10^{20}] \subset\texttt{SignedDecimal256}
+        \end{split}
+        \end{equation}
+        Note that were using the \texttt{Signed} version of \texttt{Decimal256}
+        to compute $10^{\lfloor\log p\rfloor}$ as were about to multiply its
+        result by the most inner term of $\rho^{-1}$ (that is, $9\lfloor\log
+        p\rfloor - 1$, which we already know could be negative).
+    \item We got $(9\lfloor\log p\rfloor - 1) \in[-162, 179]$ and
+        $10^{\lfloor\log p\rfloor}\in[10^{-18}, 10^{20}]$. Thus,
+        the product could only overflow if $179\cdot 10^{20}$ could not fit
+        in \texttt{SignedDecimal256}, but thats clearly not the case.
+    \item We compute $p + x$, where $x$ is the term computed in step $(4)$,
+        that is, $179\cdot 10^{20}$ in the worst case. Thus, this addition
+        could only overflow if $\texttt{u128::MAX} + 179\cdot 10^{20} = 2^{128}
+        - 1 + 179\cdot 10^{20}$ did not fit in \texttt{SignedDecimal256}, but
+        thats clearly not the case.
+    \item WIP
+    \item WIP
+    \item WIP
+    \item WIP
+    %\item Computamos el término $10^{6-\lfloor\log p\rfloor}$. Tenemos: $$ (6 -
+    %    \lfloor\log p\rfloor) \in [6 - 20, 6 -(-18)] =[-14, 24] $$ Luego
+    %    cláramente $10^{24}$ cabe en \texttt{SignedDecimal256}. Igualmente, tanto
+    %    $-14$ como $24$ caben en \texttt{i32} de sobra.
+\end{enumerate}
+
 
 \break
 \bibliographystyle{plain}
