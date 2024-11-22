@@ -27,25 +27,26 @@
 \end{center}
 
 \begin{abstract}
-    \texttt{magma-vaults} are a fork of CharmFi vaults for EVM
-    \cite{charmfi-doc} adapted to the Osmosis chain with minor enchancements.
-    \texttt{magma-vaults} allow you to automatically manage 3 liquidity
-    positions for Osmosis Supercharged pools \cite{osmosis-supercharged-doc}.
-    One full range one, one concentrated, and a third one using
-    out-of-proportion balances. Users can configure different vaults with
-    different parameters, make them permisionless or permisioned, and decide
-    the exact liquidity that will go into each position.
+    \texttt{magma-vaults} are a fork of CharmFi vaults \cite{charmfi-doc},
+    designed originally for EVM, but adapted to the Osmosis chain with minor
+    enhancements. \texttt{magma-vaults} allow users to automatically manage up to 3
+    liquidity positions for Osmosis Supercharged pools
+    \cite{osmosis-supercharged-doc}. A full range position, a normal
+    concentrated and balanced one, and a third limit one using out-of-proportion
+    balances to reduce impermanent loss. Users can configure different vaults
+    with different parameters, make them permisionless or permisioned, and
+    decide the exact liquidity that will go into each position.
 \end{abstract}
 
 \section{Introduction}
 UniswapV3 introduces the concept of ticks to allow for concentrated liqudity
-positions over custom ranges. Thus, we distinguish 2 spaces we want to work in:
+positions over any range of ticks. Thus, we distinguish 2 spaces we want to work in:
 A tick space, where all ticks live, and a price space, where all prices live. As
-prices are logarithmic, we construct a linear tick space by taking logarithms.
-Its in this way that UniswapV3 price function $\rho(t) = 1.0001^t$ is constructed
+prices are logarithmic, UniswapV3 constructed a linear tick space by taking logarithms.
+Its in this way that UniswapV3 price function $\rho(t) = 1.0001^t$ is defined 
 (equation (6.1) \citep{uniswapv3}), with the nice property that given the current
 tick $t$ of a liquidity pool, any concentrated position equidistant to $t$ will
-be balanced. That its, for any $\varepsilon > 0$, positions in tick range
+be balanced. That is, for any $\varepsilon > 0$, positions with tick ranges
 $[t-\varepsilon, t + \varepsilon]$ with reserves $(x, y)$ will have $\rho(t) =
 y/x$.
 
@@ -55,32 +56,32 @@ logarithmic nature, as prices grow, tick precision decreases. To give
 an example, if the current price of bitcoin was 80000USDC, the difference
 between the 2 closest ticks is of almost 8USDC. For this reaon, Osmosis introduces
 geometric tick spacing with additive ranges \cite{osmosis-price-function}, that
-allows us to define an order book on top of the AMM with proper tick precision.
-Its easy to verify that its price function is:
+allows to define an order book on top of the AMM with proper tick precision.
+Then, its easy to verify that Osmosis price function is:
 \[
 \rho(t) = 10^{\lfloor t/9e6\rfloor - 6} \left(
-    t - 10^6\left(9\lfloor\frac{t}{9e6}\rfloor - 1\right)
+    t - 10^6\left(9\left\lfloor\frac{t}{9e6}\right\rfloor - 1\right)
 \right)
 \]
 
 Naturally, mapping the tick space and price space in this way breaks our nice
 equidistant property. For this reason, \texttt{magma-vaults} does operations over
 the price space instead of the tick space, and then takes the price function
-generalized inverse to decide the ticks for the balanced base position and the
+generalized inverse $\rho^{-1}$ to decide the ticks for the balanced base position and the
 limit one. It is then trivial to prove that, given the current tick $t$ and the
 current price $p := \rho(t)$, any position in the price range $[p/k, pk]$ will
 be balanced (we keep $k > 1$ for simplicity). We refer to those factors $k$ as
-\texttt{PriceFactor}s in the code, and they will be, with the the
+\texttt{PriceFactor}s in the code, and they will be, with the
 \texttt{Weight} type, our fundamental building block to configure custom
-strategies.
+liquidity provision strategies.
 
 \section{Architecture overview}
-Magma vaults manage up to 3 concentrated liqudity positions. A full range
+\texttt{magma-vaults} manage up to 3 concentrated liqudity positions. A full range
 position, a base balanced position, and a limit position. Both, the full range
 position and the base position will be balanced, but as prices move, the base
 position could become unbalanced. Thus we expose a \texttt{rebalancing}
 functionality, that will burn all positions and create them again centered
-around the new price. Moreover, its easy to see that the total vault reserves
+around the new current price. Moreover, its easy to see that the total vault reserves
 wont always be in proportion, so any out-of-proportion reserves will be used
 for the limit position. Actually, vault total reserves almost never will be in
 proportion, but its still theoretically possible a vault could get rebalanced
@@ -88,6 +89,7 @@ to have no limit position. Thus, the core business logic of the vault contract,
 i.e, the rebalancing procedure, will:
 \begin{enumerate}
     \item Burn all active liquidity positions to withdraw total reserves $(X, Y)$.
+        We consider new deposits to the vault to be included in this pair.
     \item Calculate all the balanced reserves $(x, y)$ in the vault. Its trivial
         to verify that:
         $$
@@ -141,10 +143,10 @@ only complicated part is minting vault shares (represented as a \texttt{cw20}),
 but for that we simply use CharmFi battle tested code.
 
 \section{Full range reserves computation}
-Charmfi Alpha Vaults allocate liquidity to the full range position with
+CharmFi Alpha Vaults allocate liquidity to the full range position with
 the formula $L = w\sqrt{XY}$ \cite{charmfi-liquidity-computation}. But this
 introduces an imprecision: As the base range size is variable, its liquidity
-will also be. Thus, \texttt{magma-vaults}, to make easier to reason about fees,
+will also be. Thus, \texttt{magma-vaults}, to make it easier to reason about fees,
 ensures the liquidity of the full range position remains constant through the
 invariant:
 \[
@@ -227,7 +229,7 @@ any errors:
     \item Could only produce a division by zero if $\sqrt k -  1 + w = 0$.
         Assume $k= 1$, then $\sqrt k - 1 + w = 0 \iff w = 0$, in which case
         $x_0$ computation is trivial (see first line of the implementation).
-        Note that also $k = 1 \land w = 0$ produces a vault with generally idle
+        Note also that $k = 1 \land w = 0$ produces a vault with generally idle
         capital and only limit positions (which the first version does not
         support). On the other hand, the division wont overflow because $x_0
         \leq x$, as stated earlier.
@@ -255,7 +257,7 @@ mean 2 things:
 \begin{enumerate}
     \item Generalized inverse property: $\forall t\in T: \rho^{-1}(\rho(t)) =
         t$, where $T\subset\mathbb Z$ is the tick space.
-    \item Closeness property: $\forall t_0, t_1\in T$ st $t_1 > t_0$, we have
+    \item Closeness property: $\forall t_0, t_1\in T$ s.t. $t_1 > t_0$, we have
         that $\forall p\in [\rho(t_0), \rho(t_1)]$ its the case that
         $\rho^{-1}(p)\in[t_0, t_1]$. That is, given any 2 ticks, if we map them
         to the price space and pick any price in that range, that price tick will
@@ -326,15 +328,15 @@ is invariant.
     \item \texttt{maybe\_neg\_pow} sipmply takes \texttt{SignedDecimal256::pow(10, exp)}
         but with \texttt{i32} domain instead of \texttt{u32} (the implmentation is trivial).
         Clearly, the operation could fail for the whole domain, but in our case:
-        \begin{equation}
+        \begin{equation*}
         \begin{split}
         &\texttt{maybe\_neg\_pow}(\text{Im}(\texttt{floorlog10}))=\\
         &\texttt{maybe\_neg\_pow}([-18, 20])
         = [10^{-18}, 10^{20}] \subset\texttt{SignedDecimal256}
         \end{split}
-        \end{equation}
-        Note that were using the \texttt{Signed} version of \texttt{Decimal256}
-        to compute $10^{\lfloor\log p\rfloor}$ as were about to multiply its
+        \end{equation*}
+        Note that we're using the \texttt{Signed} version of \texttt{Decimal256}
+        to compute $10^{\lfloor\log p\rfloor}$ as we're about to multiply its
         result by the most inner term of $\rho^{-1}$ (that is, $9\lfloor\log
         p\rfloor - 1$, which we already know could be negative).
     \item We got $(9\lfloor\log p\rfloor - 1) \in[-162, 179]$ and
@@ -354,7 +356,7 @@ is invariant.
         $10^{24}$ fits in \texttt{SignedDecimal256}.
     \item Finally, we compute the product of the terms computed in $(6)$ and $(5)$.
         We know $10^{24}\cdot (2^{128} - 1+179\cdot 10^{20})$
-        is a upper bound for our product, which already fits in \texttt{SignedDecimal256}. But note that if 
+        is an upper bound for our product, which already fits in \texttt{SignedDecimal256}. But note that if 
         $\lfloor\log p\rfloor = 20$ then the left factor will be $10^{6-20} = 10^{-14}$.
         On the other hand, if $\lfloor\log p\rfloor = -18$, then it will be $10^{6-(-18)}=10^{24}$.
         It is easy to verify then that:
