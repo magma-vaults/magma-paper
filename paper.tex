@@ -136,6 +136,9 @@ Thus, the only remaining question is when to rebalance. For this, any vault can 
         decided by the admin). This allows for fully permisionless vaults if the
         vault admin decides to burn its ownership.
 \end{itemize}
+Finally, for vault withdrawals and deposits, the business logic is trivial. The
+only complicated part is minting vault shares (represented as a \texttt{cw20}),
+but for that we simply use CharmFi battle tested code.
 
 \section{Full range reserves computation}
 Charmfi Alpha Vaults allocate liquidity to the full range position with
@@ -180,16 +183,15 @@ as the fact will be helpful later:
 
 \begin{equation*}
 \begin{split}
-\frac{\sqrt k wx}{\sqrt k + w - 1}\leq x\iff\\
+\frac{\sqrt k wx}{\sqrt k + w - 1}\leq x\iff
 \sqrt k w\leq \sqrt k+w-1\iff\\
-\sqrt k(w-1)+(1-w)\iff\\
+\sqrt k(w-1)+(1-w)\leq 0\iff
 (w-1)(\sqrt k-1)\leq 0
 \end{split}
 \end{equation*}
-But $(w - 1) \geq 0$ y $(\sqrt k -1) \leq 0$ as $w\in[0, 1]$ and $k\in[1,
+But $(w - 1) \geq 0$ and$(\sqrt k -1) \leq 0$ as $w\in[0, 1]$ and $k\in[1,
 \infty)$. This concludes the proof.
 
-\break
 \subsection{Computation security proof}
 We now prove that the way $x_0$ is computed in the \texttt{magma-vaults} codebase
 is secure. Thus considered the implementation:
@@ -262,7 +264,7 @@ mean 2 things:
 But its easy to check that the weaker form of the closeness property when $t_1
 = t_0 + 1$ is equivalent to the general form. The generalized inverse property
 is not enough for our usecase, as we just mentioned there will be prices that
-map to the same tick. Informally, by proving the weak generalized closeness
+map to the same tick. Informally, by proving the weak closeness
 property, we will know that any price will get mapped to its closest tick or
 its second closes tick (which, for our usecase, is good enough). The proof
 sketch goes as follows:
@@ -344,14 +346,26 @@ is invariant.
         could only overflow if $\texttt{u128::MAX} + 179\cdot 10^{20} = 2^{128}
         - 1 + 179\cdot 10^{20}$ did not fit in \texttt{SignedDecimal256}, but
         thats clearly not the case.
-    \item WIP
-    \item WIP
-    \item WIP
-    \item WIP
-    %\item Computamos el término $10^{6-\lfloor\log p\rfloor}$. Tenemos: $$ (6 -
-    %    \lfloor\log p\rfloor) \in [6 - 20, 6 -(-18)] =[-14, 24] $$ Luego
-    %    cláramente $10^{24}$ cabe en \texttt{SignedDecimal256}. Igualmente, tanto
-    %    $-14$ como $24$ caben en \texttt{i32} de sobra.
+    \item We compute the left factor $10^{6-\lfloor\log p\rfloor}$. We have:
+        $$
+	        (6 - \lfloor\log p\rfloor) \in [6 - 20, 6 -(-18)] =[-14, 24]
+        $$
+        And clearly $-14$ fits in \texttt{i32}, and so does $24$, and so do
+        $10^{24}$ fits in \texttt{SignedDecimal256}.
+    \item Finally, we compute the product of the terms computed in $(6)$ and $(5)$.
+        We know $10^{24}\cdot (2^{128} - 1+179\cdot 10^{20})$
+        is a upper bound for our product, which already fits in \texttt{SignedDecimal256}. But note that if 
+        $\lfloor\log p\rfloor = 20$ then the left factor will be $10^{6-20} = 10^{-14}$.
+        On the other hand, if $\lfloor\log p\rfloor = -18$, then it will be $10^{6-(-18)}=10^{24}$.
+        It is easy to verify then that:
+        \[
+            \text{Im}(\rho^{-1}) = \left[ \rho^{-1}\left(\frac 1{10^{18}}\right),
+            \rho^{-1}\left(\frac{2^{128}-1}{10^{18}}\right) \right]
+        \]
+    \item Because of $(7)$, the integer part of $p^{-1}$ will always fit in
+        \texttt{Int128}.
+    \item Because of $(7)$, the integer part of $p^{-1}$ will always fit in
+        \texttt{i32}.
 \end{enumerate}
 
 
