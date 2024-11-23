@@ -57,7 +57,7 @@ an example, if the current price of bitcoin was 80000USDC, the difference
 between the 2 closest ticks is of almost 8USDC. For this reaon, Osmosis introduces
 geometric tick spacing with additive ranges \cite{osmosis-price-function}, that
 allows to define an order book on top of the AMM with proper tick precision.
-Then, its easy to verify that Osmosis price function is:
+Then, it's easy to verify that Osmosis price function is:
 \[
 \rho(t) = 10^{\lfloor t/9e6\rfloor - 6} \left(
     t - 10^6\left(9\left\lfloor\frac{t}{9e6}\right\rfloor - 1\right)
@@ -81,10 +81,10 @@ position, a base balanced position, and a limit position. Both, the full range
 position and the base position will be balanced, but as prices move, the base
 position could become unbalanced. Thus we expose a \texttt{rebalancing}
 functionality, that will burn all positions and create them again centered
-around the new current price. Moreover, its easy to see that the total vault reserves
+around the new current price. Moreover, it's easy to see that the total vault reserves
 wont always be in proportion, so any out-of-proportion reserves will be used
 for the limit position. Actually, vault total reserves almost never will be in
-proportion, but its still theoretically possible a vault could get rebalanced
+proportion, but it's still theoretically possible a vault could get rebalanced
 to have no limit position. Thus, the core business logic of the vault contract,
 i.e, the rebalancing procedure, will:
 \begin{enumerate}
@@ -127,7 +127,7 @@ Thus, the only remaining question is when to rebalance. For this, any vault can 
 3 rebalancing strategies:
 \begin{itemize}
     \item \texttt{admin}: Only the vault admin can rebalance the vault whenever they
-        feel like. Thus, its up to the admin to decide the rebalancing strategy off-chain.
+        feel like. Thus, it's up to the admin to decide the rebalancing strategy off-chain.
     \item \texttt{delegate}: Any delegate address, decided by the admin, can rebalance
         the vault whenever they feel like. This allows for the system extensionality with,
         for example, oracle integration to rebalance automatically.
@@ -258,12 +258,12 @@ mean 2 things:
     \item Generalized inverse property: $\forall t\in T: \rho^{-1}(\rho(t)) =
         t$, where $T\subset\mathbb Z$ is the tick space.
     \item Closeness property: $\forall t_0, t_1\in T$ s.t. $t_1 > t_0$, we have
-        that $\forall p\in [\rho(t_0), \rho(t_1)]$ its the case that
+        that $\forall p\in [\rho(t_0), \rho(t_1)]$ it's the case that
         $\rho^{-1}(p)\in[t_0, t_1]$. That is, given any 2 ticks, if we map them
         to the price space and pick any price in that range, that price tick will
         also be in the tick range after pulling it back.
 \end{enumerate}
-But its easy to check that the weaker form of the closeness property when $t_1
+But it's easy to check that the weaker form of the closeness property when $t_1
 = t_0 + 1$ is equivalent to the general form. The generalized inverse property
 is not enough for our usecase, as we just mentioned there will be prices that
 map to the same tick. Informally, by proving the weak closeness
